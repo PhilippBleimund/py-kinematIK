@@ -2,6 +2,8 @@ from typing import Optional
 import numpy as np
 import math
 
+from scipy.spatial.transform import Rotation as Rot
+
 
 class RobotArm:
     def __init__(self) -> None:
@@ -109,12 +111,13 @@ class RobotArm:
             T.append(T[-1] @ link(p))
         return T
 
-    def _inverse_kin(self, endeffector_pos: np.ndarray, curr_angle: Optional[np.ndarray] = None) -> np.ndarray:
+    def _inverse_kin(self, endeffector_pos: np.ndarray, endeffector_angle: Optional[np.ndarray] = None, curr_angle: Optional[np.ndarray] = None) -> np.ndarray:
         """
         calculates the angles for each joint that are needed to reach an given position.
 
         parameters:
             endeffector_pos: The position the endeffector should approach. Given in the base koordinate system
+            endeffector_angle: The desired angle from wich the endeffector_pos should be approached. Given as quaternion
             curr_angle: [Optional] The current angle of each joint. Uses this as its starting point
         returns:
             angles: array with the angles for the joints in [-pi,pi] format
@@ -131,10 +134,16 @@ class RobotArm:
         else:
             curr_angle = self._expand_angles(curr_angle)
 
+        curr_angle = np.concatenate([curr_angle, endeffector_angle])
+
         for i in range(max_iter):
-            T_curr = self._forward_kin_chain(curr_angle[actuated])
-            curr_pos = T_curr[-1][:3, 3]
+            T_curr = self._forward_kin(curr_angle[actuated])
+            curr_pos = T_curr[:3, 3]
+            curr_quaternion = Rot.from_matrix(T_curr[:2, :2])
+
             pos_error = endeffector_pos - curr_pos
+            quaternion_error = # TODO
+            error = np.hstack([pos_error, quaternion_error])
 
             if np.linalg.norm(pos_error) < tol:
                 break
@@ -145,7 +154,7 @@ class RobotArm:
             # Damped least squares: J^T (J J^T + lambda^2 I)^-1
             JJT = J_pos @ J_pos.T
             delta_angles = J_pos.T @ np.linalg.solve(
-                JJT + damping**2 * np.eye(3), pos_error
+                JJT + damping**2 * np.eye(6), error
             )
 
             # Clamp step size
