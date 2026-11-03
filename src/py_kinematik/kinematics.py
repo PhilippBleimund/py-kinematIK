@@ -169,9 +169,13 @@ class RobotArm:
 
     def forward_kin(self, phi: np.ndarray, full=False) -> np.ndarray:
         if full == True:
-            return np.array([t[:3, 3] for t in self._forward_kin_chain(phi)])
+            transforms = self._forward_kin_chain(phi)
+            positions = np.array([t[:3, 3] for t in transforms])
+            rotations = np.array([Rot.from_matrix(t[:3, :3]).as_euler("xyz") for t in transforms])
+            return positions, rotations
         else:
-            return self._forward_kin(phi)[:3, 3]
+            T = self._forward_kin(phi)
+            return T[:3, 3], Rot.from_matrix(T[:3, :3]).as_euler("xyz")
 
     def inverse_kin(self, endeffector_pos, curr_angle=None) -> np.ndarray:
         return self._inverse_kin(endeffector_pos, curr_angle=curr_angle)
