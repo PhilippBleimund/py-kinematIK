@@ -136,7 +136,7 @@ class RobotArm:
         for i in range(max_iter):
             T_curr = self._forward_kin(curr_angle[actuated])
             curr_pos = T_curr[:3, 3]
-            curr_orientation = Rot.as_euler(T_curr[:2, :2])
+            curr_orientation = Rot.from_matrix(T_curr[:3, :3]).as_euler("xyz")
 
             pos_error = endeffector_pos - curr_pos
             orientation_error = endeffector_orientation - curr_orientation
