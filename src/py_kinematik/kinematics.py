@@ -133,14 +133,16 @@ class RobotArm:
         else:
             curr_angle = self._expand_angles(curr_angle)
 
+        target_orientation = Rot.from_euler("xyz", endeffector_orientation)
+
         for i in range(max_iter):
             transforms = self._forward_kin_chain(curr_angle[actuated])
             T_curr = transforms[-1]
             curr_pos = T_curr[:3, 3]
-            curr_orientation = Rot.from_matrix(T_curr[:3, :3]).as_euler("xyz")
+            curr_orientation = Rot.from_matrix(T_curr[:3, :3])
 
             pos_error = endeffector_pos - curr_pos
-            orientation_error = (endeffector_orientation * curr_orientation.inv()).as_rotvec()
+            orientation_error = (target_orientation * curr_orientation.inv()).as_rotvec()
             error = np.concatenate((pos_error, orientation_error))
 
             if np.linalg.norm(pos_error) < tol and np.linalg.norm(orientation_error) < tol:
