@@ -177,6 +177,6 @@ class RobotArm:
             T = self._forward_kin(phi)
             return T[:3, 3], Rot.from_matrix(T[:3, :3]).as_euler("xyz")
 
-    def inverse_kin(self, endeffector_pos, curr_angle=None) -> np.ndarray:
-        return self._inverse_kin(endeffector_pos, curr_angle=curr_angle)
+    def inverse_kin(self, endeffector_pos, endeffector_orientation, curr_angle=None) -> np.ndarray:
+        return self._inverse_kin(endeffector_pos, endeffector_orientation, curr_angle=curr_angle)
 
