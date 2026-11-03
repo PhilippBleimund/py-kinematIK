@@ -134,18 +134,19 @@ class RobotArm:
             curr_angle = self._expand_angles(curr_angle)
 
         for i in range(max_iter):
-            T_curr = self._forward_kin_chain(curr_angle[actuated])
-            curr_pos = T_curr[-1][:3, 3]
-            curr_orientation = Rot.from_matrix(T_curr[-1][:3, :3]).as_euler("xyz")
+            transforms = self._forward_kin_chain(curr_angle[actuated])
+            T_curr = transforms[-1]
+            curr_pos = T_curr[:3, 3]
+            curr_orientation = Rot.from_matrix(T_curr[:3, :3]).as_euler("xyz")
 
             pos_error = endeffector_pos - curr_pos
-            orientation_error = endeffector_orientation - curr_orientation
-            error = np.hstack([pos_error, orientation_error])
+            orientation_error = (endeffector_orientation * curr_orientation.inv()).as_rotvec()
+            error = np.concatenate((pos_error, orientation_error))
 
-            if np.linalg.norm(pos_error) < tol:
-                break
+            if np.linalg.norm(pos_error) < tol and np.linalg.norm(orientation_error) < tol:
+                return np.arctan2(np.sin(curr_angle), np.cos(curr_angle))
 
-            J = self._jacobian(T_curr)
+            J = self._jacobian(transforms)
 
             # Damped least squares: J^T (J J^T + lambda^2 I)^-1
             JJT = J @ J.T
@@ -170,5 +171,6 @@ class RobotArm:
         else:
             return self._forward_kin(phi)[:3, 3]
 
-    def inverse_kin(self, endeffector_pos: np.ndarray, curr_angle=None) -> np.ndarray:
-        return self._inverse_kin(endeffector_pos, curr_angle)
+    def inverse_kin(self, endeffector_pos, curr_angle=None) -> np.ndarray:
+        return self._inverse_kin(endeffector_pos, curr_angle=curr_angle)
+
