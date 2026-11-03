@@ -134,8 +134,8 @@ class RobotArm:
             curr_angle = self._expand_angles(curr_angle)
 
         for i in range(max_iter):
-            T_curr = self._forward_kin(curr_angle[actuated])
-            curr_pos = T_curr[:3, 3]
+            T_curr = self._forward_kin_chain(curr_angle[actuated])
+            curr_pos = T_curr[-1][:3, 3]
             curr_orientation = Rot.from_matrix(T_curr[:3, :3]).as_euler("xyz")
 
             pos_error = endeffector_pos - curr_pos
@@ -145,12 +145,11 @@ class RobotArm:
             if np.linalg.norm(pos_error) < tol:
                 break
 
-            J_full = self._jacobian(T_curr)
-            J_pos = J_full[:3, :]
+            J = self._jacobian(T_curr)
 
             # Damped least squares: J^T (J J^T + lambda^2 I)^-1
-            JJT = J_pos @ J_pos.T
-            delta_angles = J_pos.T @ np.linalg.solve(
+            JJT = J @ J.T
+            delta_angles = J.T @ np.linalg.solve(
                 JJT + damping**2 * np.eye(6), error
             )
 
