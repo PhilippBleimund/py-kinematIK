@@ -110,7 +110,57 @@ class RobotArm:
             T.append(T[-1] @ link(p))
         return T
 
-    def _inverse_kin(self, endeffector_pos: np.ndarray, endeffector_orientation: Optional[np.ndarray] = None, curr_angle: Optional[np.ndarray] = None) -> np.ndarray:
+    def _inverse_kin_pos(self, endeffector_pos: np.ndarray, curr_angle: Optional[np.ndarray] = None) -> np.ndarray:
+        """
+        calculates the angles for each joint that are needed to reach an given position.
+
+        parameters:
+            endeffector_pos: The position the endeffector should approach. Given in the base koordinate system
+            curr_angle: [Optional] The current angle of each joint. Uses this as its starting point
+        returns:
+            angles: array with the angles for the joints in [-pi,pi] format
+        """
+        max_iter = 50
+        damping = 0.01
+        max_step = 0.1
+        tol = 1e-4
+
+        actuated = np.array([i for i in range(len(self.links)) if i not in self.fixed_links])
+
+        if curr_angle is None:
+            curr_angle = np.zeros(len(self.links))
+        else:
+            curr_angle = self._expand_angles(curr_angle)
+
+        for i in range(max_iter):
+            T_curr = self._forward_kin_chain(curr_angle[actuated])
+            curr_pos = T_curr[-1][:3, 3]
+            pos_error = endeffector_pos - curr_pos
+
+            if np.linalg.norm(pos_error) < tol:
+                break
+
+            J_full = self._jacobian(T_curr)
+            J_pos = J_full[:3, :]
+
+            # Damped least squares: J^T (J J^T + lambda^2 I)^-1
+            JJT = J_pos @ J_pos.T
+            delta_angles = J_pos.T @ np.linalg.solve(
+                JJT + damping**2 * np.eye(3), pos_error
+            )
+
+            # Clamp step size
+            step_norm = np.linalg.norm(delta_angles)
+            if step_norm > max_step:
+                delta_angles *= max_step / step_norm
+
+            # Clamp to [-pi, pi]
+            angles = curr_angle[actuated] + delta_angles
+            curr_angle[actuated] = np.arctan2(np.sin(angles), np.cos(angles))
+
+        return curr_angle[actuated]
+
+    def _inverse_kin_ori(self, endeffector_pos: np.ndarray, endeffector_orientation: Optional[np.ndarray] = None, curr_angle: Optional[np.ndarray] = None) -> np.ndarray:
         """
         calculates the angles for each joint that are needed to reach an given position.
 
@@ -177,6 +227,9 @@ class RobotArm:
             T = self._forward_kin(phi)
             return T[:3, 3], Rot.from_matrix(T[:3, :3]).as_euler("xyz")
 
-    def inverse_kin(self, endeffector_pos, endeffector_orientation, curr_angle=None) -> np.ndarray:
-        return self._inverse_kin(endeffector_pos, endeffector_orientation, curr_angle=curr_angle)
+    def inverse_kin(self, endeffector_pos, endeffector_orientation=None, curr_angle=None) -> np.ndarray:
+        if endeffector_orientation is not None:
+            return self._inverse_kin_ori(endeffector_pos, endeffector_orientation, curr_angle=curr_angle)
+        else:
+            return self._inverse_kin_pos(endeffector_pos, curr_angle=curr_angle)
 
