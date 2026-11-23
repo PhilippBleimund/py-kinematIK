@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "numpy>=2.5.4",
+    "pin>=4.1.0",
     "skipy>=0.3.2",
 ]
 

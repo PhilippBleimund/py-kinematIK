@@ -2,59 +2,83 @@ from typing import Optional
 import numpy as np
 import math
 
+import pinocchio as pin
+
 from scipy.spatial.transform import Rotation as Rot
 
-def inverse_kin_pos_pinocchio(
+def inverse_kin_pos_multi_pinocchio(
     model: pin.Model,
     data: pin.Data,
-    frame_id: int,
+    frame_ids: list[int],
     target_pos: np.ndarray,
     q0: np.ndarray | None = None,
+    active_v: np.ndarray | None = None,
     max_iter: int = 50,
     damping: float = 0.01,
     max_step: float = 0.1,
     tol: float = 1e-4,
 ) -> tuple[np.ndarray, bool]:
     """
-    Position-only IK with damped least squares, using pinocchio for FK and Jacobians.
+    Position-only IK for several end effectors (e.g. the 6 feet of a hexapod).
 
     parameters:
-        model, data: pinocchio model and data of the leg
-        frame_id:    id of the end-effector frame (model.getFrameId("foot"))
-        target_pos:  desired end-effector position in the base/world frame (3,)
+        model, data: pinocchio model and data of the whole robot
+        frame_ids:   end-effector frame ids, one per target (e.g. 6 feet)
+        target_pos:  (len(frame_ids) x 3) desired positions in the world frame
         q0:          [Optional] start configuration, defaults to pin.neutral(model)
+        active_v:    [Optional] indices into the velocity vector (0..nv-1) that may move.
+                     Use this to exclude a floating base, e.g. np.arange(6, model.nv).
+                     Default: all joints.
     returns:
-        q:       joint configuration (model.nq,)
-        success: True if the position error is below tol
+        q:       configuration (model.nq,)
+        success: True if every foot error is below tol
     """
-    target_pos = np.asarray(target_pos, dtype=float)
+    target_pos = np.asarray(target_pos, dtype=float).reshape(-1, 3)
+    n_ee = len(frame_ids)
+    assert target_pos.shape[0] == n_ee, "One target position per frame id"
+
     q = pin.neutral(model) if q0 is None else np.array(q0, dtype=float)
+    if active_v is None:
+        active_v = np.arange(model.nv)
 
     success = False
     for _ in range(max_iter):
-        # current end-effector position
         pin.forwardKinematics(model, data, q)
-        pin.updateFramePlacement(model, data, frame_id)
-        pos_error = target_pos - data.oMf[frame_id].translation
+        pin.updateFramePlacements(model, data)
 
-        if np.linalg.norm(pos_error) < tol:
+        # stacked error (3N,)
+        errors = np.concatenate([
+            target_pos[i] - data.oMf[fid].translation
+            for i, fid in enumerate(frame_ids)
+        ])
+
+        # converged only if every single foot is within tolerance
+        if np.all(np.linalg.norm(errors.reshape(n_ee, 3), axis=1) < tol):
             success = True
             break
 
-        # 3 x nv position Jacobian, expressed in the world frame
-        J = pin.computeFrameJacobian(
-            model, data, q, frame_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
-        )[:3, :]
+        # stacked position Jacobian (3N x n_active), world-aligned
+        pin.computeJointJacobians(model, data, q)
+        J = np.vstack([
+            pin.getFrameJacobian(
+                model, data, fid, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
+            )[:3, active_v]
+            for fid in frame_ids
+        ])
 
         # damped least squares: dq = J^T (J J^T + lambda^2 I)^-1 error
-        dq = J.T @ np.linalg.solve(J @ J.T + damping**2 * np.eye(3), pos_error)
+        dq_active = J.T @ np.linalg.solve(
+            J @ J.T + damping**2 * np.eye(3 * n_ee), errors
+        )
 
         # clamp step size
-        step_norm = np.linalg.norm(dq)
+        step_norm = np.linalg.norm(dq_active)
         if step_norm > max_step:
-            dq *= max_step / step_norm
+            dq_active *= max_step / step_norm
 
-        # integrate on the configuration manifold
+        # expand to the full velocity vector and integrate
+        dq = np.zeros(model.nv)
+        dq[active_v] = dq_active
         q = pin.integrate(model, q, dq)
 
     return q, success
