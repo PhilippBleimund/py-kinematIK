@@ -4,6 +4,61 @@ import math
 
 from scipy.spatial.transform import Rotation as Rot
 
+def inverse_kin_pos_pinocchio(
+    model: pin.Model,
+    data: pin.Data,
+    frame_id: int,
+    target_pos: np.ndarray,
+    q0: np.ndarray | None = None,
+    max_iter: int = 50,
+    damping: float = 0.01,
+    max_step: float = 0.1,
+    tol: float = 1e-4,
+) -> tuple[np.ndarray, bool]:
+    """
+    Position-only IK with damped least squares, using pinocchio for FK and Jacobians.
+
+    parameters:
+        model, data: pinocchio model and data of the leg
+        frame_id:    id of the end-effector frame (model.getFrameId("foot"))
+        target_pos:  desired end-effector position in the base/world frame (3,)
+        q0:          [Optional] start configuration, defaults to pin.neutral(model)
+    returns:
+        q:       joint configuration (model.nq,)
+        success: True if the position error is below tol
+    """
+    target_pos = np.asarray(target_pos, dtype=float)
+    q = pin.neutral(model) if q0 is None else np.array(q0, dtype=float)
+
+    success = False
+    for _ in range(max_iter):
+        # current end-effector position
+        pin.forwardKinematics(model, data, q)
+        pin.updateFramePlacement(model, data, frame_id)
+        pos_error = target_pos - data.oMf[frame_id].translation
+
+        if np.linalg.norm(pos_error) < tol:
+            success = True
+            break
+
+        # 3 x nv position Jacobian, expressed in the world frame
+        J = pin.computeFrameJacobian(
+            model, data, q, frame_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
+        )[:3, :]
+
+        # damped least squares: dq = J^T (J J^T + lambda^2 I)^-1 error
+        dq = J.T @ np.linalg.solve(J @ J.T + damping**2 * np.eye(3), pos_error)
+
+        # clamp step size
+        step_norm = np.linalg.norm(dq)
+        if step_norm > max_step:
+            dq *= max_step / step_norm
+
+        # integrate on the configuration manifold
+        q = pin.integrate(model, q, dq)
+
+    return q, success
+
 class RobotArm:
     def __init__(self) -> None:
         self.links = []
