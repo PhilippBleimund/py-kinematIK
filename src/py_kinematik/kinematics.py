@@ -12,7 +12,6 @@ def inverse_kin_pos_multi_pinocchio(
     frame_ids: list[int],
     target_pos: np.ndarray,
     q0: np.ndarray | None = None,
-    active_v: np.ndarray | None = None,
     max_iter: int = 50,
     damping: float = 0.01,
     max_step: float = 0.1,
@@ -38,8 +37,6 @@ def inverse_kin_pos_multi_pinocchio(
     assert target_pos.shape[0] == n_ee, "One target position per frame id"
 
     q = pin.neutral(model) if q0 is None else np.array(q0, dtype=float)
-    if active_v is None:
-        active_v = np.arange(model.nv)
 
     success = False
     for _ in range(max_iter):
@@ -62,7 +59,7 @@ def inverse_kin_pos_multi_pinocchio(
         J = np.vstack([
             pin.getFrameJacobian(
                 model, data, fid, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
-            )[:3, active_v]
+            )[:3]
             for fid in frame_ids
         ])
 
@@ -78,7 +75,7 @@ def inverse_kin_pos_multi_pinocchio(
 
         # expand to the full velocity vector and integrate
         dq = np.zeros(model.nv)
-        dq[active_v] = dq_active
+        dq = dq_active
         q = pin.integrate(model, q, dq)
 
     return q, success
