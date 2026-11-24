@@ -78,6 +78,8 @@ def inverse_kin_pos_multi_pinocchio(
         dq = dq_active
         q = pin.integrate(model, q, dq)
 
+    q = np.clip(q, model.lowerPositionLimit, model.upperPositionLimit)
+
     return q, success
 
 class RobotArm:
